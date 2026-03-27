@@ -1,0 +1,55 @@
+================================================================================
+Experiment Log — LightGlue Finetuning on Tracked Planes
+================================================================================
+
+GCS base:    gs://rembrand-data/dawy/glue_factory_exp/
+Dataset:     gs://rembrand-data/dawy/vggt_finetune/tracking_whisper_clean_dataset/
+             142 clips, ~200 frames each, 1920x1080
+
+TB events:   gs://rembrand-data/dawy/glue_factory_exp/<exp_name>/
+Checkpoints: gs://rembrand-data/dawy/glue_factory_exp/<exp_name>/
+
+Monitoring:  python monitor_exp.py
+             python monitor_exp.py --no-sync  (skip GCS sync)
+
+Best checkpoint: checkpoint_best.tar  (saved when val/loss/total improves)
+
+--------------------------------------------------------------------------------
+Checkpoint Summary (update as experiments run)
+--------------------------------------------------------------------------------
+
+| Exp    | Best Checkpoint      | val/loss/total | match_recall | Notes              |
+|--------|----------------------|----------------|--------------|--------------------|
+| EXP-01 | —                    | —              | —            | Not started        |
+
+================================================================================
+EXP-01  lightglue_exp01  [PENDING]
+================================================================================
+
+Goal: Baseline finetune of pretrained superpoint+lightglue on tracked plane data.
+
+Config: gluefactory/configs/lightglue_exp01.yaml
+Job:    job_exp01.yaml
+
+Key settings:
+  - Pretrained weights: superpoint+lightglue v0.1_arxiv
+  - SuperPoint: plane mask from corners.csv (keypoints restricted to tracked region)
+  - max_num_keypoints: 512, force_num_keypoints: True
+  - batch_size: 128, lr: 5e-5, epochs: 20
+  - lr_schedule: exp decay from ep10
+  - frame gap: 1–30 frames
+  - No image resize (full 1920x1080)
+
+Key signals to watch:
+  - val/loss/total should decrease from pretrained baseline (~0.3-0.5 range)
+  - match_recall: fraction of GT plane matches found — target >0.6
+  - match_precision: should stay high (>0.7) — low = false positives outside plane
+  - If val/loss/total stagnates after ep5: may need lower LR or larger frame gap
+
+Results:
+  (to be filled)
+
+DIAGNOSIS:
+  (to be filled)
+
+Best checkpoint: —

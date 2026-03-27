@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dawy-lightglue-exp01-
+  labels:
+    jobgroup: dawy-gpu-a100-jobgroup
+spec:
+  template:
+    metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: research
+          image: us-central1-docker.pkg.dev/rembrand-ai/rembrand-repo/glue-factory:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              export TRAINING_PATH=/mnt/bucket/dawy/glue_factory_exp
+              export EVAL_PATH=/mnt/bucket/dawy/glue_factory_exp/eval
+              mkdir -p $TRAINING_PATH $EVAL_PATH
+
+              cd /workspace/glue-factory
+
+              python -m gluefactory.train lightglue_exp01 \
+                --conf gluefactory/configs/lightglue_exp01.yaml
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - mountPath: /mnt/bucket
+              name: bucket
+            - mountPath: /mnt/nfs
+              name: volume
+            - mountPath: /dev/shm
+              name: dshm
+          resources:
+            limits:
+              cpu: 10
+              memory: 150Gi
+              nvidia.com/gpu: 1
+      nodeSelector:
+        cloud.google.com/gke-nodepool: gpu-nodes-a100-80gb-flex
+        cloud.google.com/gke-flex-start: "true"
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      serviceAccountName: gke-node-k8s-sa
+      volumes:
+        - name: volume
+          persistentVolumeClaim:
+            claimName: diffusion
+        - name: bucket
+          persistentVolumeClaim:
+            claimName: gcs-fuse-csi-static-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory

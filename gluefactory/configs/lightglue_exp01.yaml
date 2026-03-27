@@ -1,0 +1,60 @@
+# EXP-01: Baseline finetune — pretrained superpoint+lightglue on tracked planes
+# Plane mask applied to SuperPoint to restrict keypoints to tracked region.
+# Full 1920x1080 resolution, batch_size=128, lr=5e-5 from pretrained weights.
+
+data:
+    name: tracking_planes
+    data_dir: /mnt/bucket/dawy/vggt_finetune/tracking_whisper_clean_dataset
+    train_size: 10000
+    val_size: 1000
+    val_fraction: 0.1
+    min_frame_gap: 1
+    max_frame_gap: 30
+    batch_size: 128
+    num_workers: 8
+    photometric:
+        name: lg
+        p: 0.75
+    resize: null
+
+model:
+    name: two_view_pipeline
+    extractor:
+        name: extractors.superpoint_open
+        max_num_keypoints: 512
+        force_num_keypoints: True
+        detection_threshold: 0.0
+        nms_radius: 3
+        trainable: False
+    ground_truth:
+        name: matchers.homography_matcher
+        th_positive: 3
+        th_negative: 3
+    matcher:
+        name: matchers.lightglue
+        weights: superpoint
+        weights_from_version: v0.1_arxiv
+        filter_threshold: 0.1
+        flash: false
+        checkpointed: true
+
+train:
+    seed: 0
+    epochs: 20
+    lr: 5e-5
+    lr_schedule:
+        type: exp
+        start: 10
+        on_epoch: true
+        exp_div_10: 10
+    log_every_iter: 100
+    eval_every_iter: 500
+    save_every_iter: 5000
+    best_key: loss/total
+    plot: [5, 'gluefactory.visualization.visualize_batch.make_match_figures']
+
+benchmarks:
+    hpatches:
+        eval:
+            estimator: opencv
+            ransac_th: 0.5
