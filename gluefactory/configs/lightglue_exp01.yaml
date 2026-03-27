@@ -15,7 +15,7 @@ data:
     photometric:
         name: lg
         p: 0.75
-    resize: null
+    resize: [1920, 1080]   # normalize all clips to 1080p (some source clips are 4K)
 
 model:
     name: two_view_pipeline
