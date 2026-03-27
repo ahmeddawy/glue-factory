@@ -1,0 +1,20 @@
+# Dataset — never bake into the image
+tracking_whisper_clean_dataset/
+
+# Training outputs
+outputs/
+data/
+
+# Git
+.git/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Local experiment logs/checkpoints
+exp_log.txt
+/tmp/
