@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dawy-lightglue-train-
+  labels:
+    jobgroup: dawy-gpu-a100-jobgroup
+spec:
+  template:
+    metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: research
+          image: us-central1-docker.pkg.dev/rembrand-ai/rembrand-repo/glue-factory:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              # Redirect outputs to NFS so checkpoints/logs survive pod termination
+              export TRAINING_PATH=/mnt/nfs/glue-factory/outputs/training
+              export EVAL_PATH=/mnt/nfs/glue-factory/outputs/results
+              mkdir -p $TRAINING_PATH $EVAL_PATH
+
+              cd /workspace/glue-factory
+
+              python -m gluefactory.train superpoint+lightglue_tracking \
+                --conf gluefactory/configs/superpoint+lightglue_tracking.yaml \
+                data.data_dir=/mnt/bucket/tracking_whisper_clean_dataset
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - mountPath: /mnt/bucket
+              name: bucket
+            - mountPath: /mnt/nfs
+              name: volume
+            - mountPath: /dev/shm
+              name: dshm
+          resources:
+            limits:
+              cpu: 10
+              memory: 150Gi
+              nvidia.com/gpu: 1
+      nodeSelector:
+        cloud.google.com/gke-nodepool: gpu-nodes-a100-80gb-flex
+        cloud.google.com/gke-flex-start: "true"
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      serviceAccountName: gke-node-k8s-sa
+      volumes:
+        - name: volume
+          persistentVolumeClaim:
+            claimName: diffusion
+        - name: bucket
+          persistentVolumeClaim:
+            claimName: gcs-fuse-csi-static-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory

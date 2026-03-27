@@ -140,6 +140,13 @@ class SuperPoint(BaseModel):
         )
         scores = batched_nms(scores, self.conf.nms_radius)
 
+        # Zero out scores outside the plane mask if provided
+        if "mask" in data:
+            plane_mask = data["mask"]  # (B, H, W) bool
+            if plane_mask.dim() == 2:
+                plane_mask = plane_mask.unsqueeze(0)
+            scores = scores * plane_mask.float()
+
         # Discard keypoints near the image borders
         if self.conf.remove_borders:
             pad = self.conf.remove_borders

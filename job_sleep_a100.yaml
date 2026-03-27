@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dawy-vggtexp8-eval-
+  labels:
+    jobgroup: dawy-gpu-a100-jobgroup
+spec:
+  template:
+    metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: research
+          image: us-central1-docker.pkg.dev/rembrand-ai/rembrand-repo/research-cuda12:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - eval 'jupyter notebook --ip 0.0.0.0 --no-browser --allow-root --ServerApp.allow_origin=* --ServerApp.allow_remote_access=1 --IdentityProvider.token=token &' &&
+              eval '/usr/sbin/sshd -D &' &&
+              sleep infinity
+          volumeMounts:
+            - mountPath: /mnt/bucket
+              name: bucket
+            - mountPath: /mnt/nfs
+              name: volume
+            - mountPath: /dev/shm
+              name: dshm
+          ports:
+            - name: jupyter
+              containerPort: 8888
+              protocol: TCP
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 10
+              memory: 150Gi
+              nvidia.com/gpu: 1
+      nodeSelector:
+        cloud.google.com/gke-nodepool: gpu-nodes-a100-80gb-flex
+        cloud.google.com/gke-flex-start: "true"
+        iam.gke.io/gke-metadata-server-enabled: "true"
+      serviceAccountName: gke-node-k8s-sa
+      volumes:
+        - name: volume
+          persistentVolumeClaim:
+            claimName: diffusion
+        - name: bucket
+          persistentVolumeClaim:
+            claimName: gcs-fuse-csi-static-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
