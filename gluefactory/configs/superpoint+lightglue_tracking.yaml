@@ -29,6 +29,8 @@ model:
         th_negative: 3
     matcher:
         name: matchers.lightglue
+        weights: superpoint          # load pretrained superpoint+lightglue weights
+        weights_from_version: v0.1_arxiv
         filter_threshold: 0.1
         flash: false
         checkpointed: true
