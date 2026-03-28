@@ -45,31 +45,33 @@ def _corners_to_mask(tl_x, tl_y, tr_x, tr_y, br_x, br_y, bl_x, bl_y, img_h, img_
     return mask.astype(bool)
 
 
-def _load_frame(video_path, frame_idx, width, height, fps=25.0):
-    """Load a single frame from a video file using ffmpeg (GCS-fuse friendly).
-    ffmpeg seeks by timestamp which works well over network filesystems,
-    unlike cv2.VideoCapture which does random byte-range seeks inside the file.
-    width/height come from meta.json so we avoid a separate ffprobe call.
+def _extract_clip_frames(video_path, out_dir, clip_name):
+    """Extract all frames from a video to JPEG files in out_dir.
+    One ffmpeg call reads the video sequentially — fast even over GCS-fuse.
     """
     import subprocess
-    timestamp = frame_idx / fps
+    out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-loglevel", "error",
-        "-ss", f"{timestamp:.6f}",
         "-i", str(video_path),
-        "-frames:v", "1",
-        "-f", "rawvideo",
-        "-pix_fmt", "rgb24",
-        "pipe:1",
+        "-q:v", "2",          # JPEG quality (2=high, 31=low)
+        str(out_dir / "frame_%06d.jpg"),
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode != 0 or len(result.stdout) == 0:
+    result = subprocess.run(cmd, stderr=subprocess.PIPE)
+    if result.returncode != 0:
         raise RuntimeError(
-            f"ffmpeg failed for frame {frame_idx} of {video_path}: "
-            f"{result.stderr.decode()[:200]}"
+            f"ffmpeg extraction failed for {clip_name}: "
+            f"{result.stderr.decode()[:300]}"
         )
-    frame = np.frombuffer(result.stdout, dtype=np.uint8).reshape(height, width, 3)
-    return frame
+
+
+def _load_frame(frames_dir, frame_idx):
+    """Load a pre-extracted JPEG frame from local disk. Instant read."""
+    path = frames_dir / f"frame_{frame_idx + 1:06d}.jpg"  # ffmpeg is 1-indexed
+    img = cv2.imread(str(path))
+    if img is None:
+        raise RuntimeError(f"Could not read frame {path}")
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
 class TrackingPlanesDataset(BaseDataset):
@@ -134,7 +136,7 @@ class TrackingPlanesDataset(BaseDataset):
 class _ClipData:
     """Lightweight container holding pre-loaded ae_data for one clip."""
 
-    def __init__(self, clip_dir):
+    def __init__(self, clip_dir, frames_cache_root=Path("/tmp/gf_frames")):
         self.clip_dir = clip_dir
         ae = clip_dir / "ae_data"
         self.homographies = np.load(ae / "homographies.npy")   # (N, 3, 3)
@@ -146,6 +148,16 @@ class _ClipData:
         self.video_width = meta["video_width"]
         self.video_height = meta["video_height"]
         self.fps = meta.get("fps", 25.0)
+        self.frames_dir = frames_cache_root / clip_dir.name
+        self._frames_ready = self.frames_dir.exists() and any(self.frames_dir.iterdir())
+
+    def ensure_frames(self):
+        """Extract frames to local disk on first access (lazy, thread-safe via existence check)."""
+        if self._frames_ready:
+            return
+        logger.info("Extracting frames for clip %s → %s", self.clip_dir.name, self.frames_dir)
+        _extract_clip_frames(self.video_path, self.frames_dir, self.clip_dir.name)
+        self._frames_ready = True
 
     def frame_h_to_ref(self, i):
         """H that maps reference (frame-0 coords) → frame i."""
@@ -191,7 +203,8 @@ class _Dataset(torch.utils.data.Dataset):
 
     def _load_and_prepare(self, clip, frame_idx, aug):
         """Load a frame, optionally resize, apply augmentation, build mask."""
-        img = _load_frame(clip.video_path, frame_idx, clip.video_width, clip.video_height, clip.fps)
+        clip.ensure_frames()
+        img = _load_frame(clip.frames_dir, frame_idx)
         orig_h, orig_w = img.shape[:2]
 
         if self.resize is not None:
