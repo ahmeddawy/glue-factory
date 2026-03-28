@@ -18,6 +18,8 @@ Directory structure expected:
 import logging
 from pathlib import Path
 
+import json
+
 import cv2
 import numpy as np
 import pandas as pd
@@ -43,15 +45,31 @@ def _corners_to_mask(tl_x, tl_y, tr_x, tr_y, br_x, br_y, bl_x, bl_y, img_h, img_
     return mask.astype(bool)
 
 
-def _load_frame(video_path, frame_idx):
-    """Load a single frame from a video file by index."""
-    cap = cv2.VideoCapture(str(video_path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-    ret, frame = cap.read()
-    cap.release()
-    if not ret:
-        raise RuntimeError(f"Could not read frame {frame_idx} from {video_path}")
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+def _load_frame(video_path, frame_idx, width, height, fps=25.0):
+    """Load a single frame from a video file using ffmpeg (GCS-fuse friendly).
+    ffmpeg seeks by timestamp which works well over network filesystems,
+    unlike cv2.VideoCapture which does random byte-range seeks inside the file.
+    width/height come from meta.json so we avoid a separate ffprobe call.
+    """
+    import subprocess
+    timestamp = frame_idx / fps
+    cmd = [
+        "ffmpeg", "-loglevel", "error",
+        "-ss", f"{timestamp:.6f}",
+        "-i", str(video_path),
+        "-frames:v", "1",
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "pipe:1",
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0 or len(result.stdout) == 0:
+        raise RuntimeError(
+            f"ffmpeg failed for frame {frame_idx} of {video_path}: "
+            f"{result.stderr.decode()[:200]}"
+        )
+    frame = np.frombuffer(result.stdout, dtype=np.uint8).reshape(height, width, 3)
+    return frame
 
 
 class TrackingPlanesDataset(BaseDataset):
@@ -124,6 +142,10 @@ class _ClipData:
         self.track_masks = np.load(ae / "track_masks.npy")     # (N, M)
         self.n_frames = len(self.homographies)
         self.video_path = clip_dir / "original.mp4"
+        meta = json.load(open(ae / "meta.json"))
+        self.video_width = meta["video_width"]
+        self.video_height = meta["video_height"]
+        self.fps = meta.get("fps", 25.0)
 
     def frame_h_to_ref(self, i):
         """H that maps reference (frame-0 coords) → frame i."""
@@ -169,7 +191,7 @@ class _Dataset(torch.utils.data.Dataset):
 
     def _load_and_prepare(self, clip, frame_idx, aug):
         """Load a frame, optionally resize, apply augmentation, build mask."""
-        img = _load_frame(clip.video_path, frame_idx)   # (H, W, 3) uint8 RGB
+        img = _load_frame(clip.video_path, frame_idx, clip.video_width, clip.video_height, clip.fps)
         orig_h, orig_w = img.shape[:2]
 
         if self.resize is not None:

@@ -22,22 +22,10 @@ spec:
               export EVAL_PATH=/mnt/bucket/dawy/glue_factory_exp/eval
               mkdir -p $TRAINING_PATH $EVAL_PATH
 
-              # Copy dataset from GCS-fuse to NFS for fast random frame access
-              DATASET_NFS=/mnt/nfs/dawy/tracking_whisper_clean_dataset
-              if [ ! -d "$DATASET_NFS" ]; then
-                echo "Copying dataset to NFS..."
-                mkdir -p /mnt/nfs/dawy
-                cp -r /mnt/bucket/dawy/vggt_finetune/tracking_whisper_clean_dataset $DATASET_NFS
-                echo "Dataset copy done."
-              else
-                echo "Dataset already on NFS, skipping copy."
-              fi
-
               cd /workspace/glue-factory
 
               python -m gluefactory.train lightglue_exp01 \
-                --conf gluefactory/configs/lightglue_exp01.yaml \
-                data.data_dir=$DATASET_NFS
+                --conf gluefactory/configs/lightglue_exp01.yaml
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
